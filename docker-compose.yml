@@ -22,6 +22,8 @@ services:
         --max-requests ${GUNICORN_MAX_REQUESTS}
         --workers ${GUNICORN_WORKERS}
         --threads ${GUNICORN_THREADS}
+    networks:
+      - qfieldcloud_net
     volumes:
       - static_volume:/usr/src/app/staticfiles
       - media_volume:/usr/src/app/mediafiles/
@@ -48,7 +50,7 @@ services:
       STORAGE_BUCKET_NAME: ${STORAGE_BUCKET_NAME}
       STORAGE_REGION_NAME: ${STORAGE_REGION_NAME}
       STORAGE_ENDPOINT_URL: ${STORAGE_ENDPOINT_URL}
-      QFIELDCLOUD_DEFAULT_NETWORK: ${QFIELDCLOUD_DEFAULT_NETWORK:-${COMPOSE_PROJECT_NAME}_default}
+      QFIELDCLOUD_DEFAULT_NETWORK: ${QFIELDCLOUD_DEFAULT_NETWORK}:-${COMPOSE_PROJECT_NAME}_default
       GEODB_HOST: ${GEODB_HOST}
       GEODB_PORT: ${GEODB_PORT}
       GEODB_USER: ${GEODB_USER}
@@ -71,7 +73,7 @@ services:
       QFIELDCLOUD_SUBSCRIPTION_MODEL: ${QFIELDCLOUD_SUBSCRIPTION_MODEL}
       QFIELDCLOUD_AUTH_TOKEN_EXPIRATION_HOURS: ${QFIELDCLOUD_AUTH_TOKEN_EXPIRATION_HOURS}
       QFIELDCLOUD_DEFAULT_TIME_ZONE: ${QFIELDCLOUD_DEFAULT_TIME_ZONE}
-      QFIELDCLOUD_QGIS_IMAGE_NAME: ${QFIELDCLOUD_QGIS_IMAGE_NAME:-${COMPOSE_PROJECT_NAME}-qgis}
+      QFIELDCLOUD_QGIS_IMAGE_NAME: ${QFIELDCLOUD_QGIS_IMAGE_NAME}:-${COMPOSE_PROJECT_NAME}-qgis
       QFIELDCLOUD_TRANSFORMATION_GRIDS_VOLUME_NAME: ${COMPOSE_PROJECT_NAME}_transformation_grids
       WEB_HTTP_PORT: ${WEB_HTTP_PORT}
       WEB_HTTPS_PORT: ${WEB_HTTPS_PORT}
@@ -91,6 +93,8 @@ services:
     build:
       context: ./docker-nginx
     restart: unless-stopped
+    networks:
+      - qfieldcloud_net
     volumes:
       - ./docker-nginx/certs/:/etc/nginx/certs/:ro
       - certbot_www:/var/www/certbot
@@ -113,6 +117,8 @@ services:
 
   mkcert:
     image: vishnunair/docker-mkcert
+    networks:
+      - qfieldcloud_net
     environment:
       domain: ${QFIELDCLOUD_HOST}
     volumes:
@@ -121,6 +127,8 @@ services:
 
   certbot:
     image: certbot/certbot
+    networks:
+      - qfieldcloud_net
     restart: unless-stopped
     volumes:
       - ./conf/certbot/conf:/etc/letsencrypt
@@ -135,6 +143,8 @@ services:
         DEBUG_BUILD: ${DEBUG}
     tty: true
     command: bash -c "echo QGIS built"
+    networks:
+      - qfieldcloud_net
     logging: *default-logging
 
   worker_wrapper:
@@ -144,6 +154,8 @@ services:
       network: host
       target: worker_wrapper_runtime
     command: python manage.py dequeue
+    networks:
+      - qfieldcloud_net
     user: root # TODO change me to least privileged docker-capable user on the host (/!\ docker users!=hosts users, use UID rather than username)
     volumes:
       # TODO : how can we reuse static/media volumes from default-django to keep things DRY (yaml syntax expert needed)
@@ -159,6 +171,8 @@ services:
 
   ofelia:
     image: mcuadros/ofelia:v0.3.4
+    networks:
+      - qfieldcloud_net
     restart: unless-stopped
     depends_on:
       - app
@@ -168,16 +182,27 @@ services:
 
   mirror_transformation_grids:
     image: k3rnelpan1c/alpine-wget:latest
+    networks:
+      - qfieldcloud_net
     command: |
-      wget --mirror https://cdn.proj.org/ -P /transformation_grids --no-host-directories
+      wget --mirror https://cdn.proj.org/ -P /transformation_grids --no-host-directories &&
       chmod a+r /transformation_grids/*
     volumes:
       - transformation_grids:/transformation_grids
 
   memcached:
     image: memcached:1
+    networks:
+      - qfieldcloud_net
     expose:
       - "11211:11211"
+
+networks:
+  qfieldcloud_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
 
 volumes:
   static_volume:

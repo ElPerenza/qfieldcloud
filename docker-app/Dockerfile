@@ -69,8 +69,8 @@ RUN echo '{}' > fixture.json
 # RUN groupmod -g 1000 app
 # RUN usermod -u 1000 app
 
-COPY ./entrypoint.sh /entrypoint.sh
-ENTRYPOINT ["/entrypoint.sh"]
+COPY ./entrypoint.sh ./entrypoint.sh
+ENTRYPOINT ["./entrypoint.sh"]
 
 ##########################
 # WEBSERVER RUNTIME      #
