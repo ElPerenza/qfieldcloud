@@ -14,3 +14,4 @@ Pipfile*
 **/site-packages
 docker-qgis/libqfieldsync
 docker-qgis/qfieldcloud-sdk-python
+venv/
