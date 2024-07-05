@@ -253,6 +253,10 @@ STORAGE_BUCKET_NAME = os.environ.get("STORAGE_BUCKET_NAME")
 STORAGE_REGION_NAME = os.environ.get("STORAGE_REGION_NAME")
 STORAGE_ENDPOINT_URL = os.environ.get("STORAGE_ENDPOINT_URL")
 
+# Local
+PROJECTFILES_URL = "/projectfiles/"
+PROJECTFILES_ROOT = os.path.join(BASE_DIR, "projectfiles")
+
 AUTH_USER_MODEL = "core.User"
 
 # QFieldCloud variables

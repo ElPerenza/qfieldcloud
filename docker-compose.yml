@@ -161,6 +161,7 @@ services:
       # TODO : how can we reuse static/media volumes from default-django to keep things DRY (yaml syntax expert needed)
       - static_volume:/usr/src/app/staticfiles
       - media_volume:/usr/src/app/mediafiles/
+      - projects_volume:/usr/src/app/projectfiles/
       - transformation_grids:/transformation_grids
       - /var/run/docker.sock:/var/run/docker.sock
       - ${LOG_DIRECTORY}:/log
@@ -203,9 +204,11 @@ networks:
     ipam:
       config:
         - subnet: 172.28.0.0/16
+          gateway: 172.28.254.254
 
 volumes:
   static_volume:
   media_volume:
+  projects_volume:
   transformation_grids:
   certbot_www:
