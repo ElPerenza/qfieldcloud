@@ -44,9 +44,9 @@ server {
   }
 
   # prevent access by IP
-  if ($http_host !~ "${QFIELDCLOUD_HOST}(:{WEB_HTTP_PORT})?") {
-    return 444;
-  }
+  #if ($http_host !~ "${QFIELDCLOUD_HOST}(:{WEB_HTTP_PORT})?") {
+  #  return 444;
+  #}
 
   # use $WEB_HTTPS_PORT in the configuration, since it might be different from 443 (e.g. localhost)
   location / {
@@ -76,9 +76,9 @@ server {
   error_page 497 https://$host:${WEB_HTTPS_PORT}$request_uri;
 
   # prevent access by IP
-  if ($http_host !~ "${QFIELDCLOUD_HOST}(:${WEB_HTTPS_PORT})?") {
-    return 444;
-  }
+  #if ($http_host !~ "${QFIELDCLOUD_HOST}(:${WEB_HTTPS_PORT})?") {
+  #  return 444;
+  #}
 
   # deny annoying bot
   deny 34.215.13.216;
