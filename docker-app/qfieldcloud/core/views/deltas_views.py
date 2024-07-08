@@ -5,6 +5,7 @@ from datetime import datetime
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils.translation import gettext as _
+from qfieldcloud.core import utils_local
 from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiTypes,
@@ -133,10 +134,10 @@ class ListCreateDeltasView(generics.ListCreateAPIView):
 
         except Exception as err:
             if request_file:
-                key = f"projects/{projectid}/deltas/{datetime.now().isoformat()}.json"
+                key = f"{projectid}/deltas/{datetime.now().isoformat()}.json"
                 # otherwise we upload an empty file
                 request_file.seek(0)
-                utils.get_s3_bucket().upload_fileobj(request_file, key)
+                utils_local.upload_fileobj(request_file, key)
                 logger.info(f'Invalid deltafile saved as "{key}"')
 
             logger.exception(err)
