@@ -1,10 +1,9 @@
-import uuid
-from typing import Set
+from uuid import UUID
 
 from django.core.management.base import BaseCommand
-from qfieldcloud.core import utils
+from qfieldcloud.core.utils_local import get_projects_dir, list_files
 from qfieldcloud.core.models import Project
-from qfieldcloud.core.utils2 import storage
+from qfieldcloud.core.utils2.storage import delete_all_project_files_permanently
 
 
 class Command(BaseCommand):
@@ -14,8 +13,9 @@ class Command(BaseCommand):
         parser.add_argument("--dry-run", action="store_true")
         parser.add_argument("--limit", type=int, default=100)
 
-    def get_orphaned_project_ids(self, project_ids: Set[str]) -> Set[str]:
-        orphaned_project_ids = set()
+    def get_orphaned_project_ids(self, project_ids: set[str]) -> set[str]:
+
+        orphaned_project_ids: set[str] = set()
         existing_project_ids = Project.objects.filter(
             id__in=list(project_ids),
         ).values_list("id", flat=True)
@@ -30,20 +30,21 @@ class Command(BaseCommand):
         return orphaned_project_ids
 
     def handle(self, *args, **options):
-        dry_run = options.get("dry_run")
-        limit = options.get("limit")
-        bucket = utils.get_s3_bucket()
-        project_ids = set()
-        orphaned_project_ids = set()
+
+        dry_run: bool | None = options.get("dry_run")
+        limit: int | None = options.get("limit")
+
+        project_ids: set[str] = set()
+        orphaned_project_ids: set[str] = set()
 
         if dry_run:
             self.stdout.write("Dry run, no files will be deleted.")
 
-        for f in utils.list_files(bucket, "projects/", "projects/"):
+        for f in list_files(get_projects_dir(), ""):
             project_id = f.name[:36]
 
             try:
-                uuid.UUID(project_id)
+                UUID(project_id)
             except Exception:
                 self.stdout.write(f"Invalid uuid: {str(project_id)}")
                 continue
@@ -73,4 +74,4 @@ class Command(BaseCommand):
             self.stdout.write(f'Deleting project files for "{project_id}"...')
 
             if not dry_run:
-                storage.delete_all_project_files_permanently(project_id)
+                delete_all_project_files_permanently(project_id)
