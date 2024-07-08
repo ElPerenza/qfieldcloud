@@ -1,26 +1,21 @@
-import hashlib
-import io
-import json
 import logging
 import os
-import posixpath
 from datetime import datetime
 from pathlib import Path, PurePath
-from typing import IO, Generator, NamedTuple
+from typing import Generator, NamedTuple
 
-import boto3
-import jsonschema
-import mypy_boto3_s3
-from botocore.errorfactory import ClientError
 from django.conf import settings
-from django.core.files.uploadedfile import InMemoryUploadedFile, TemporaryUploadedFile
+
+from utils import get_sha256, get_md5sum
 
 logger = logging.getLogger(__name__)
 
 
 class FileObject(NamedTuple):
-    version_id: int
+    """Represents a single version of a project file."""
     name: str
+    version_id: int
+    absolute_path: Path
     key: str
     last_modified: datetime
     size: int
@@ -32,9 +27,9 @@ class FileObject(NamedTuple):
 
 
 class FileObjectWithVersions(NamedTuple):
+    """Represents all of the versions of a project file."""
     latest: FileObject
     versions: list[FileObject]
-
     @property
     def total_size(self) -> int:
         """Total size of all versions"""
@@ -43,126 +38,17 @@ class FileObjectWithVersions(NamedTuple):
 
 
 def get_projects_dir() -> Path:
-
+    """Return the root directory where the project files are stored."""
     if not os.path.exists(settings.PROJECTFILES_ROOT):
         os.makedirs(settings.PROJECTFILES_ROOT, exist_ok=True)
-
     return Path(settings.PROJECTFILES_ROOT)
-
-
-def get_sha256(file: IO) -> str:
-    """Return the sha256 hash of the file"""
-    if type(file) is InMemoryUploadedFile or type(file) is TemporaryUploadedFile:
-        return _get_sha256_memory_file(file)
-    else:
-        return _get_sha256_file(file)
-
-
-def _get_sha256_memory_file(file: InMemoryUploadedFile | TemporaryUploadedFile) -> str:
-    BLOCKSIZE = 65536
-    hasher = hashlib.sha256()
-
-    for chunk in file.chunks(BLOCKSIZE):
-        hasher.update(chunk)
-
-    file.seek(0)
-    return hasher.hexdigest()
-
-
-def _get_sha256_file(file: IO) -> str:
-    BLOCKSIZE = 65536
-    hasher = hashlib.sha256()
-    buf = file.read(BLOCKSIZE)
-    while len(buf) > 0:
-        hasher.update(buf)
-        buf = file.read(BLOCKSIZE)
-    file.seek(0)
-    return hasher.hexdigest()
-
-
-def get_md5sum(file: IO) -> str:
-    """Return the md5sum hash of the file"""
-    if type(file) is InMemoryUploadedFile or type(file) is TemporaryUploadedFile:
-        return _get_md5sum_memory_file(file)
-    else:
-        return _get_md5sum_file(file)
-
-
-def _get_md5sum_memory_file(file: InMemoryUploadedFile | TemporaryUploadedFile) -> str:
-    BLOCKSIZE = 65536
-    hasher = hashlib.md5()
-
-    for chunk in file.chunks(BLOCKSIZE):
-        hasher.update(chunk)
-
-    file.seek(0)
-    return hasher.hexdigest()
-
-
-def _get_md5sum_file(file: IO) -> str:
-    BLOCKSIZE = 65536
-    hasher = hashlib.md5()
-
-    buf = file.read(BLOCKSIZE)
-    while len(buf) > 0:
-        hasher.update(buf)
-        buf = file.read(BLOCKSIZE)
-    file.seek(0)
-    return hasher.hexdigest()
-
-
-def strip_json_null_bytes(file: IO) -> IO:
-    """Return JSON string stream without NULL chars."""
-    result = io.BytesIO()
-    result.write(file.read().decode().replace(r"\u0000", "").encode())
-    file.seek(0)
-    result.seek(0)
-
-    return result
-
-
-def safe_join(base: str, *paths: str) -> str:
-    """
-    A version of django.utils._os.safe_join for S3 paths.
-    Joins one or more path components to the base path component
-    intelligently. Returns a normalized version of the final path.
-    The final path must be located inside of the base path component
-    (otherwise a ValueError is raised).
-    Paths outside the base path indicate a possible security
-    sensitive operation.
-    """
-    base_path = base
-    base_path = base_path.rstrip("/")
-    paths = tuple(paths)
-
-    final_path = base_path + "/"
-    for path in paths:
-        _final_path = posixpath.normpath(posixpath.join(final_path, path))
-        # posixpath.normpath() strips the trailing /. Add it back.
-        if path.endswith("/") or _final_path + "/" == final_path:
-            _final_path += "/"
-        final_path = _final_path
-    if final_path == base_path:
-        final_path += "/"
-
-    # Ensure final_path starts with base_path and that the next character after
-    # the base path is /.
-    base_path_len = len(base_path)
-    if not final_path.startswith(base_path) or final_path[base_path_len] != "/":
-        raise ValueError(
-            "the joined path is located outside of the base path" " component"
-        )
-
-    return final_path.lstrip("/")
 
 
 def is_qgis_project_file(filename: str) -> bool:
     """Returns whether the filename seems to be a QGIS project file by checking the file extension."""
     path = PurePath(filename)
-
     if path.suffix.lower() in (".qgs", ".qgz"):
         return True
-
     return False
 
 
@@ -185,11 +71,11 @@ def get_qgis_project_file(project_id: str) -> str | None:
     return None
 
 
-def list_project_files(path: Path) -> list[Path]: 
+def list_project_files(project_dir: Path) -> list[Path]: 
     """Lists all of the project file directories found inside the given project directory and all subdirectories"""
 
     all_files: list[Path] = []
-    dirs = [entry for entry in path.glob("*") if entry.is_dir()]
+    dirs = [entry for entry in project_dir.glob("*") if entry.is_dir()]
 
     for entry in dirs:
         if entry.suffix.lower() == ".d":
@@ -211,41 +97,28 @@ def check_file_path(path: str) -> str | None:
         return None
     with open(get_latest_version(full_path), "r") as f:
         return get_sha256(f)
-    
+
+
+def get_all_versions(file_dir: Path) -> list[Path]: 
+    """Get all the versions of a file given its directory."""
+    all_versions = [file for file in file_dir.glob("*.*")]
+    all_versions.sort(key = lambda f: int(f.name.split("_")[0]))
+    return all_versions
+
 
 def get_latest_version(file_dir: Path) -> Path: 
     """Get the latest version of a file given its directory."""
-    all_versions = [file for file in file_dir.glob("*.*")]
-    # sort by leading id, ascending
-    all_versions.sort(key = lambda f: int(f.name.split("_")[0]))
-    return all_versions[-1]
-
-
-def get_deltafile_schema_validator() -> jsonschema.Draft7Validator:
-    """Creates a JSON schema validator to check whether the provided delta
-    file is valid.
-
-    Returns:
-        jsonschema.Draft7Validator -- JSON Schema validator
-    """
-    schema_file = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "deltafile_01.json"
-    )
-
-    with open(schema_file) as f:
-        schema_dict = json.load(f)
-
-    jsonschema.Draft7Validator.check_schema(schema_dict)
-
-    return jsonschema.Draft7Validator(schema_dict)
+    return get_all_versions(file_dir)[-1]
 
 
 def get_project_files(project_id: str, path: str = "") -> list[FileObject]:
-    """Returns a list of files and their versions.
+    """Returns the list of files found in the given project, 
+    additionally filtered by looking only in a specific path inside the project.
+    All the files returned represent their latest version.
 
     Args:
         project_id (str): the project id
-        path (str): additional filter prefix
+        path (str): additional filter path
 
     Returns:
         list[FileObject]: the list of files
@@ -255,40 +128,236 @@ def get_project_files(project_id: str, path: str = "") -> list[FileObject]:
     return list_files(get_projects_dir(), prefix, root_prefix)
 
 
+def get_project_package_files(project_id: str, package_id: str) -> list[FileObject]:
+    """Returns the list of files found in the given project package, 
+    All the files returned represent their latest version.
+
+    Args:
+        project_id (str): the project id
+        path (str): the package id
+
+    Returns:
+        list[FileObject]: the list of files
+    """
+    prefix = f"{project_id}/packages/{package_id}/"
+    return list_files(get_projects_dir(), prefix)
+
+
+def get_project_files_count(project_id: str) -> int:
+    """Returns the number of files within a project."""
+    files = list_project_files(get_projects_dir().joinpath(f"{project_id}/files/"))
+    return len(files)
+
+
+def get_project_package_files_count(project_id: str) -> int:
+    """Returns the number of package files within a project package."""
+    files = list_project_files(get_projects_dir().joinpath(f"{project_id}/export/"))
+    return len(files)
+
+
+def get_project_files_with_versions(project_id: str) -> list[FileObjectWithVersions]:
+    """Returns the list of files and all of their versions found in the given project.
+
+    Args:
+        project_id (str): the project id
+
+    Returns:
+        list[FileObject]: the list of files
+    """
+    prefix = f"{project_id}/files/"
+    return list_files_with_versions(get_projects_dir(), prefix, prefix)
+
+
+def get_project_file_with_versions(project_id: str, filename: str) -> FileObjectWithVersions | None:
+    """Returns the specified project file (if it exists) and its versions.
+
+    Args:
+        project_id (str): the project id
+        filename (str): the name of the file
+
+    Returns:
+        FileObjectWithVersions | None: the file and its versions, if found
+    """
+
+    all_files = list_project_files(get_projects_dir().joinpath(project_id))
+    files = [file for file in all_files if file.name.strip(".d") == filename]
+
+    if not files:
+        return None
+
+    file = files[0]
+    all_versions = get_all_versions(file)
+    latest_version = all_versions[-1]
+
+    name = str(file)[len(f"{project_id}/files/"):]
+    key = str(file.relative_to(get_projects_dir()))
+
+    latest_version_obj = _create_file_object(latest_version, name, key, True)
+
+    all_versions_obj: list[FileObject] = []
+    for version in all_versions:
+        is_latest = _get_version_id(version) == latest_version_obj.version_id
+        all_versions_obj.append(_create_file_object(version, name, key, is_latest))
+
+    return FileObjectWithVersions(latest_version_obj, all_versions_obj)
+
+
 def list_files(
     base_dir: PurePath,
     prefix: str,
     strip_prefix: str = "",
 ) -> list[FileObject]:
-    """List a directory's files under prefix."""
+    """List a directory's project files under prefix."""
 
     files_path = Path(base_dir.joinpath(prefix))
     files: list[FileObject] = []
     
     for f in list_project_files(files_path):
+        key = str(f.relative_to(base_dir))
+
         if strip_prefix:
             start_idx = len(str(base_dir.joinpath(strip_prefix)))
             name = str(f)[start_idx:]
         else:
-            name = str(f.relative_to(base_dir))
+            name = key
 
         latest_version = get_latest_version(f)
-        version_id = int(latest_version.name.split("_")[0])
-        stats = os.stat(latest_version)
-        with open(latest_version, "r") as opened_file:
-            md5 = get_md5sum(opened_file)
-
-        files.append(
-            FileObject(
-                name = name,
-                version_id = version_id,
-                key = str(f.relative_to(base_dir)),
-                last_modified = datetime.fromtimestamp(stats.st_mtime),
-                is_latest = True,
-                size = stats.st_size,
-                md5sum = md5
-            )
-        )
+        files.append(_create_file_object(latest_version, name, key, True))
 
     files.sort(key = lambda f: f.name)
     return files
+
+
+def list_files_with_versions(
+    base_dir: Path,
+    prefix: str,
+    strip_prefix: str = "",
+) -> list[FileObjectWithVersions]:
+    
+    files_with_versions: list[FileObjectWithVersions] = []
+
+    for f in list_files(base_dir, prefix, strip_prefix):
+
+        full_path = base_dir.joinpath(f.key)
+        versions: list[FileObject] = []
+
+        for version in get_all_versions(full_path):
+            is_latest = _get_version_id(version) == f.version_id
+            versions.append(_create_file_object(version, f.name, f.key, is_latest))
+
+        files_with_versions.append(FileObjectWithVersions(f, versions))
+    
+    return files_with_versions
+
+
+def _create_file_object(file_path: Path, name: str, key: str, is_latest: bool) -> FileObject:
+
+    with open(file_path, "r") as f:
+        md5 = get_md5sum(f)
+
+    return FileObject(
+        name = name,
+        version_id = _get_version_id(file_path),
+        absolute_path = file_path.resolve(),
+        key = key,
+        last_modified = datetime.fromtimestamp(file_path.stat().st_mtime),
+        size = file_path.stat().st_size,
+        md5sum = md5,
+        is_latest = is_latest
+    )
+
+
+def _get_version_id(file_path: PurePath) -> int:
+    return int(file_path.name.split("_")[0])
+
+
+# def list_versions(
+#     base_dir: PurePath,
+#     prefix: str,
+#     strip_prefix: str = "",
+# ) -> list[FileObject]:
+    
+#     files_path = Path(base_dir.joinpath(prefix))
+#     versions: list[FileObject] = []
+    
+#     for f in list_project_files(files_path):
+#         if strip_prefix:
+#             start_idx = len(str(base_dir.joinpath(strip_prefix)))
+#             name = str(f)[start_idx:]
+#         else:
+#             name = str(f.relative_to(base_dir))
+        
+#         latest_id = int(get_latest_version(f).name.split("_")[0])
+
+#         for file_version in get_all_versions(f):
+
+#             version_id = int(file_version.name.split("_")[0])
+#             stats = os.stat(file_version)
+#             with open(file_version, "r") as opened_file:
+#                 md5 = get_md5sum(opened_file)
+
+#             versions.append(
+#                 FileObject(
+#                     name = name,
+#                     version_id = version_id,
+#                     absolute_path = file_version,
+#                     key = str(f.relative_to(base_dir)),
+#                     last_modified = datetime.fromtimestamp(stats.st_mtime),
+#                     is_latest = version_id == latest_id,
+#                     size = stats.st_size,
+#                     md5sum = md5
+#                 )
+#             )
+    
+#     versions.sort(key = lambda v: (v.key, v.last_modified))
+#     return versions
+
+
+# def list_files_with_versions(
+#     base_dir: PurePath,
+#     prefix: str,
+#     strip_prefix: str = "",
+# ) -> Generator[FileObjectWithVersions, None, None]:
+#     """Yields an object with all it's versions
+#     Yields:
+#         Generator[S3ObjectWithVersions]: the object with its versions
+#     """
+
+#     last_key: str | None = None
+#     versions: list[FileObject] = []
+#     latest: FileObject | None = None
+
+#     for version in list_versions(base_dir, prefix, strip_prefix):
+#         if last_key != version.key:
+#             if last_key:
+#                 assert latest
+#                 yield FileObjectWithVersions(latest, versions)
+            
+#             latest = None
+#             versions = []
+#             last_key = version.key
+
+#         versions.append(version)
+
+#         if version.is_latest:
+#                 latest = version
+    
+#     if last_key:
+#         assert latest
+#         yield FileObjectWithVersions(latest, versions)
+
+
+def upload_fileobj(
+    file,
+    key: str
+):
+    f = open(key, "a")
+    f.write(file.read())
+    f.close()
+
+
+def delete_objects(key: str):
+    if os.path.exists(key):
+        os.remove(key)
+
+
