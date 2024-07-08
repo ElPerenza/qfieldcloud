@@ -2,9 +2,9 @@ from pathlib import PurePath
 
 from django.core.exceptions import ObjectDoesNotExist
 from django.db.models import Q
-from django.http.response import HttpResponseRedirect
+from django.http.response import HttpResponse
 from drf_spectacular.utils import extend_schema, extend_schema_view
-from qfieldcloud.core import exceptions, permissions_utils, serializers, utils
+from qfieldcloud.core import exceptions, permissions_utils, serializers, utils, utils_local
 from qfieldcloud.core.models import PackageJob, Project
 from qfieldcloud.core.permissions_utils import check_supported_regarding_owner_account
 from rest_framework import permissions, views
@@ -111,21 +111,16 @@ class ListFilesView(views.APIView):
         assert package_job
 
         # Obtain the bucket object
-        bucket = utils.get_s3_bucket()
 
-        export_prefix = f"projects/{projectid}/packages/{package_job.id}/"
+        export_prefix = f"{projectid}/packages/{package_job.id}/"
 
         files = []
-        for obj in bucket.objects.filter(Prefix=export_prefix):
+        for obj in utils_local.list_files(PurePath(export_prefix), ""):
             path = PurePath(obj.key)
 
             # We cannot be sure of the metadata's first letter case
             # https://github.com/boto/boto3/issues/1709
-            metadata = obj.Object().metadata
-            if "sha256sum" in metadata:
-                sha256sum = metadata["sha256sum"]
-            else:
-                sha256sum = metadata["Sha256sum"]
+            sha256sum = utils._get_sha256_file(open(utils_local.get_projects_dir().joinpath(export_prefix), "rb"))
 
             files.append(
                 {
@@ -181,19 +176,12 @@ class DownloadFileView(views.APIView):
             )
 
         filekey = utils.safe_join(
-            f"projects/{projectid}/packages/{package_job.id}/", filename
+            f"{projectid}/packages/{package_job.id}/", filename
         )
+        return_file = open(utils_local.get_projects_dir().joinpath(filekey), "rb")
+        file_data = return_file.read()
 
-        url = utils.get_s3_client().generate_presigned_url(
-            "get_object",
-            Params={
-                "Key": filekey,
-                "Bucket": utils.get_s3_bucket().name,
-                "ResponseContentType": "application/force-download",
-                "ResponseContentDisposition": f'attachment;filename="{filename}"',
-            },
-            ExpiresIn=60,
-            HttpMethod="GET",
-        )
+        response = HttpResponse(file_data, content_type='application/octet-stream')
+        response['Content-Disposition'] = 'attachment; filename='+filename
 
-        return HttpResponseRedirect(url)
+        return response

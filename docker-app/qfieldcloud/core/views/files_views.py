@@ -14,10 +14,10 @@ from drf_spectacular.utils import (
     extend_schema,
     extend_schema_view,
 )
-from qfieldcloud.core import exceptions, permissions_utils, utils
+from qfieldcloud.core import exceptions, permissions_utils, utils_local, utils
 from qfieldcloud.core.models import Job, ProcessProjectfileJob, Project
 from qfieldcloud.core.serializers import FileSerializer
-from qfieldcloud.core.utils import S3ObjectVersion, get_project_file_with_versions
+from qfieldcloud.core.utils_local import FileObject, get_project_file_with_versions
 from qfieldcloud.core.utils2.audit import LogEntry, audit
 from qfieldcloud.core.utils2.sentry import report_serialization_diff_to_sentry
 from qfieldcloud.core.utils2.storage import (
@@ -71,11 +71,11 @@ class ListFilesView(views.APIView):
         except ObjectDoesNotExist:
             raise NotFound(detail=projectid)
 
-        bucket = utils.get_s3_bucket()
-        prefix = f"projects/{projectid}/files/"
+        
+        prefix = f"{projectid}/files/"
 
         files = {}
-        for version in bucket.object_versions.filter(Prefix=prefix):
+        for version in utils_local.list_files(PurePath(prefix), ""):
             # Created the dict entry if doesn't exist
             if version.key not in files:
                 files[version.key] = {"versions": []}
@@ -85,7 +85,7 @@ class ListFilesView(views.APIView):
             last_modified = version.last_modified.strftime("%d.%m.%Y %H:%M:%S %Z")
             # NOTE ETag is a MD5. But for the multipart uploaded files, the MD5 is computed from the concatenation of the MD5s of each uploaded part.
             # TODO make sure when file metadata is in the DB (QF-2760), this is a real md5sum of the current file.
-            md5sum = version.e_tag.replace('"', "")
+            md5sum = version.md5sum
 
             version_data = {
                 "size": version.size,
@@ -93,7 +93,7 @@ class ListFilesView(views.APIView):
                 "version_id": version.version_id,
                 "last_modified": last_modified,
                 "is_latest": version.is_latest,
-                "display": S3ObjectVersion(version.key, version).display,
+                "display": "TODO: S3ObjectVersion(version.key, version).display",
             }
 
             # NOTE Some clients (e.g. QFieldSync) are still requiring the `sha256` key to check whether the files needs to be reuploaded.
@@ -105,18 +105,10 @@ class ListFilesView(views.APIView):
                 skip_metadata = bool(skip_metadata_param)
 
             if not skip_metadata:
-                head = version.head()
-                # We cannot be sure of the metadata's first letter case
-                # https://github.com/boto/boto3/issues/1709
-                metadata = head["Metadata"]
-                if "sha256sum" in metadata:
-                    sha256sum = metadata["sha256sum"]
-                else:
-                    sha256sum = metadata["Sha256sum"]
-
-                version_data["sha256"] = sha256sum
+                sha256sum = utils._get_sha256_file(open(utils_local.get_projects_dir().joinpath(version.key), "rb"))
 
             if version.is_latest:
+                #get_attachment_dir_prefix complete dir path to file
                 is_attachment = get_attachment_dir_prefix(project, filename) != ""
 
                 files[version.key]["name"] = filename
@@ -205,7 +197,7 @@ class DownloadPushDeleteFileView(views.APIView):
         if "version" in self.request.query_params:
             version = self.request.query_params["version"]
 
-        key = utils.safe_join(f"projects/{projectid}/files/", filename)
+        key = utils.safe_join(f"{projectid}/files/", filename)
         return utils2.storage.file_response(
             request,
             key,
@@ -259,7 +251,7 @@ class DownloadPushDeleteFileView(views.APIView):
             project = request.project
         else:
             project = Project.objects.get(id=projectid)
-        is_qgis_project_file = utils.is_qgis_project_file(filename)
+        is_qgis_project_file = utils_local.is_qgis_project_file(filename)
 
         # check only one qgs/qgz file per project
         if (
@@ -277,17 +269,19 @@ class DownloadPushDeleteFileView(views.APIView):
             project, request.auth.client_type, request_file.size
         )
 
-        old_object = get_project_file_with_versions(project.id, filename)
+        old_object = get_project_file_with_versions(str(project.id), filename)
         sha256sum = utils.get_sha256(request_file)
-        bucket = utils.get_s3_bucket()
 
-        key = utils.safe_join(f"projects/{projectid}/files/", filename)
+        key = utils.safe_join(f"{projectid}/files/", filename)
         metadata = {"Sha256sum": sha256sum}
 
-        bucket.upload_fileobj(request_file, key, ExtraArgs={"Metadata": metadata})
+        utils_local.upload_fileobj(request_file, key)
 
-        new_object = get_project_file_with_versions(project.id, filename)
+        new_object = get_project_file_with_versions(str(project.id), filename)
 
+        print(new_object)
+        print(project.id)
+        print(filename)
         assert new_object
 
         with transaction.atomic():
@@ -329,13 +323,13 @@ class DownloadPushDeleteFileView(views.APIView):
             audit(
                 project,
                 LogEntry.Action.UPDATE,
-                changes={filename: [old_object.latest.e_tag, new_object.latest.e_tag]},
+                changes={filename: [old_object.latest.md5sum, new_object.latest.md5sum]},
             )
         else:
             audit(
                 project,
                 LogEntry.Action.CREATE,
-                changes={filename: [None, new_object.latest.e_tag]},
+                changes={filename: [None, new_object.latest.md5sum]},
             )
 
         # Delete the old file versions
@@ -374,7 +368,7 @@ class ProjectMetafilesView(views.APIView):
     ]
 
     def get(self, request, projectid, filename):
-        key = utils.safe_join(f"projects/{projectid}/meta/", filename)
+        key = utils.safe_join(f"{projectid}/meta/", filename)
         return utils2.storage.file_response(request, key)
 
 
