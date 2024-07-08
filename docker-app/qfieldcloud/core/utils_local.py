@@ -2,7 +2,7 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path, PurePath
-from typing import Generator, NamedTuple
+from typing import NamedTuple
 
 from django.conf import settings
 
