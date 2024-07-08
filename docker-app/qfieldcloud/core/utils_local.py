@@ -156,28 +156,13 @@ def get_project_package_files_count(project_id: str) -> int:
 
 
 def get_project_files_with_versions(project_id: str) -> list[FileObjectWithVersions]:
-    """Returns the list of files and all of their versions found in the given project.
-
-    Args:
-        project_id (str): the project id
-
-    Returns:
-        list[FileObject]: the list of files
-    """
+    """Returns the list of files and all of their versions found in the given project."""
     prefix = f"{project_id}/files/"
     return list_files_with_versions(get_projects_dir(), prefix, prefix)
 
 
 def get_project_file_with_versions(project_id: str, filename: str) -> FileObjectWithVersions | None:
-    """Returns the specified project file (if it exists) and its versions.
-
-    Args:
-        project_id (str): the project id
-        filename (str): the name of the file
-
-    Returns:
-        FileObjectWithVersions | None: the file and its versions, if found
-    """
+    """Returns the specified project file (if it exists) and its versions."""
 
     all_files = list_project_files(get_projects_dir().joinpath(project_id))
     files = [file for file in all_files if file.name.strip(".d") == filename]
