@@ -260,7 +260,7 @@ class QfcTestCase(APITransactionTestCase):
         project = self.upload_project_files(self.project1)
 
         bucket = utils.get_s3_bucket()
-        prefix = utils.safe_join(f"projects/{project.id}/deltas/")
+        prefix = utils.safe_join(f"{project.id}/deltas/")
         wrong_deltas_before = list(bucket.objects.filter(Prefix=prefix))
         delta_file = testdata_path("delta/deltas/not_schema_valid.json")
 

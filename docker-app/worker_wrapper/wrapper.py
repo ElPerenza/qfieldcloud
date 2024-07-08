@@ -30,7 +30,7 @@ from qfieldcloud.core.models import (
     ProcessProjectfileJob,
     Secret,
 )
-from qfieldcloud.core.utils import get_qgis_project_file
+from qfieldcloud.core.utils_local import get_qgis_project_file
 from qfieldcloud.core.utils2 import storage
 from tenacity import (
     retry,

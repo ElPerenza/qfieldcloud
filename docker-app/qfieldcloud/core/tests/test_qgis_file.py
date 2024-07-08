@@ -675,7 +675,7 @@ class QfcTestCase(APITransactionTestCase):
 
         # Create 20 versions (direct upload to s3)
         bucket = utils.get_s3_bucket()
-        key = f"projects/{self.project1.id}/files/file.txt/"
+        key = f"{self.project1.id}/files/file.txt/"
         for i in range(20):
             test_file = io.BytesIO(f"v{i}".encode())
             bucket.upload_fileobj(test_file, key)

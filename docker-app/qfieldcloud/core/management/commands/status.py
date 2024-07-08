@@ -1,5 +1,5 @@
 from django.core.management.base import BaseCommand
-from qfieldcloud.core import geodb_utils, utils
+from qfieldcloud.core import geodb_utils, utils_local
 
 
 class Command(BaseCommand):
@@ -16,7 +16,7 @@ class Command(BaseCommand):
         results["storage"] = "ok"
         # Check if bucket exists (i.e. the connection works)
         try:
-            utils.get_s3_bucket()
+            utils_local.get_projects_dir()
         except Exception:
             results["storage"] = "error"
 

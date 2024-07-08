@@ -1,6 +1,6 @@
 from django.core.cache import cache
 from drf_spectacular.utils import extend_schema, extend_schema_view
-from qfieldcloud.core import geodb_utils, utils
+from qfieldcloud.core import geodb_utils, utils_local
 from rest_framework import status, views
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -24,7 +24,7 @@ class APIStatusView(views.APIView):
             results["storage"] = "ok"
             # Check if bucket exists (i.e. the connection works)
             try:
-                utils.get_s3_bucket()
+                utils_local.get_projects_dir()
             except Exception:
                 results["storage"] = "error"
 

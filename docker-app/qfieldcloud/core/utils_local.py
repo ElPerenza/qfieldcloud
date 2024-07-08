@@ -6,7 +6,7 @@ from typing import NamedTuple
 
 from django.conf import settings
 
-from utils import get_sha256, get_md5sum
+from qfieldcloud.core.utils import get_sha256, get_md5sum
 
 logger = logging.getLogger(__name__)
 
@@ -237,7 +237,7 @@ def list_files_with_versions(
 
 def _create_file_object(file_path: Path, name: str, key: str, is_latest: bool) -> FileObject:
 
-    with open(file_path, "r") as f:
+    with open(file_path, "rb") as f:
         md5 = get_md5sum(f)
 
     return FileObject(
@@ -336,7 +336,23 @@ def upload_fileobj(
     file,
     key: str
 ):
-    f = open(key, "a")
+
+    path = get_projects_dir().joinpath(key +".d")
+    os.makedirs(path, exist_ok=True)
+
+    count: int
+    count_list = get_all_versions(path)
+    if not count_list or len(count_list) == 0:
+        count = 1
+    else:
+        count = int(get_latest_version(path).name.split("_")[0]) + 1
+    
+
+    middle_path = str(count) + "_" + PurePath(key).parts[-1]
+
+    final_path = path.joinpath(middle_path)
+
+    f = open(final_path, "wb")
     f.write(file.read())
     f.close()
 

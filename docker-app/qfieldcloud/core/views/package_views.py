@@ -11,11 +11,7 @@ from qfieldcloud.core import permissions_utils as perms
 from qfieldcloud.core import utils
 from qfieldcloud.core.models import PackageJob, Project
 from qfieldcloud.core.serializers import LatestPackageSerializer
-from qfieldcloud.core.utils import (
-    check_s3_key,
-    get_project_files,
-    get_project_package_files,
-)
+from qfieldcloud.core.utils_local import check_file_path, get_project_files, get_project_package_files, upload_fileobj
 from qfieldcloud.core.utils2 import storage
 from rest_framework import permissions, views
 from rest_framework.response import Response
@@ -97,7 +93,7 @@ class LatestPackageView(views.APIView):
             }
 
             if not skip_metadata:
-                file_data["sha256"] = check_s3_key(f.key)
+                file_data["sha256"] = check_file_path(f.key)
 
             filenames.add(f.name)
             files.append(file_data)
@@ -118,7 +114,7 @@ class LatestPackageView(views.APIView):
                 }
 
                 if not skip_metadata:
-                    file_data["sha256"] = check_s3_key(f.key)
+                    file_data["sha256"] = check_file_path(f.key)
 
                 filenames.add(f.name)
                 files.append(file_data)
@@ -174,14 +170,14 @@ class LatestPackageDownloadFilesView(views.APIView):
                 "Packaging has never been triggered or successful for this project."
             )
 
-        key = f"projects/{project_id}/packages/{project.last_package_job_id}/{filename}"
+        key = f"{project_id}/packages/{project.last_package_job_id}/{filename}"
 
         # files within attachment dirs that do not exist is the packaged files should be served
         # directly from the original data storage
-        if storage.get_attachment_dir_prefix(project, filename) and not check_s3_key(
+        if storage.get_attachment_dir_prefix(project, filename) and not check_file_path(
             key
         ):
-            key = f"projects/{project_id}/files/{filename}"
+            key = f"{project_id}/files/{filename}"
 
         # NOTE the `expires` kwarg is sending the `Expires` header to the client, keep it a low value (in seconds).
         return storage.file_response(request, key, expires=10, as_attachment=True)
@@ -206,15 +202,14 @@ class PackageUploadFilesView(views.APIView):
 
     def post(self, request, project_id, job_id, filename):
         """Upload the package files."""
-        key = utils.safe_join(f"projects/{project_id}/packages/{job_id}/", filename)
+        key = utils.safe_join(f"{project_id}/packages/{job_id}/", filename)
 
         request_file = request.FILES.get("file")
         sha256sum = utils.get_sha256(request_file)
         md5sum = utils.get_md5sum(request_file)
         metadata = {"Sha256sum": sha256sum}
 
-        bucket = utils.get_s3_bucket()
-        bucket.upload_fileobj(request_file, key, ExtraArgs={"Metadata": metadata})
+        upload_fileobj(request_file, key)
 
         return Response(
             {

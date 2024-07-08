@@ -25,7 +25,7 @@ from django.utils.functional import cached_property
 from django.utils.safestring import SafeString, mark_safe
 from django.utils.translation import gettext as _
 from model_utils.managers import InheritanceManager, InheritanceManagerMixin
-from qfieldcloud.core import geodb_utils, utils, validators
+from qfieldcloud.core import geodb_utils, utils_local, validators
 from qfieldcloud.core.utils2 import storage
 from qfieldcloud.subscription.exceptions import ReachedMaxOrganizationMembersError
 from timezone_field import TimeZoneField
@@ -1117,9 +1117,9 @@ class Project(models.Model):
         return not self.is_public
 
     @cached_property
-    def files(self) -> list[utils.S3ObjectWithVersions]:
+    def files(self) -> list[utils_local.FileObjectWithVersions]:
         """Gets all the files from S3 storage. This is potentially slow. Results are cached on the instance."""
-        return list(utils.get_project_files_with_versions(self.id))
+        return utils_local.get_project_files_with_versions(str(self.id))
 
     @property
     @deprecated("Use `len(project.files)` instead")
@@ -1340,7 +1340,7 @@ class Project(models.Model):
         logger.info(f"Saving project {self}...")
 
         if recompute_storage:
-            self.file_storage_bytes = storage.get_project_file_storage_in_bytes(self.id)
+            self.file_storage_bytes = storage.get_project_file_storage_in_bytes(str(self.id))
 
         # Ensure that the Project's storage_keep_versions is at least 1, and reflects the plan's default storage_keep_versions value.
         if not self.storage_keep_versions:
