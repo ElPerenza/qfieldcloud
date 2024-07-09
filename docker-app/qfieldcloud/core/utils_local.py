@@ -2,7 +2,7 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path, PurePath
-from typing import NamedTuple
+from typing import IO, NamedTuple
 
 from django.conf import settings
 
@@ -95,7 +95,7 @@ def check_file_path(path: str) -> str | None:
     full_path = get_projects_dir().joinpath(path + ".d")
     if not os.path.exists(full_path):
         return None
-    with open(get_latest_version(full_path), "r") as f:
+    with open(get_latest_version(full_path), "rb") as f:
         return get_sha256(f)
 
 
@@ -256,105 +256,24 @@ def _get_version_id(file_path: PurePath) -> int:
     return int(file_path.name.split("_")[0])
 
 
-# def list_versions(
-#     base_dir: PurePath,
-#     prefix: str,
-#     strip_prefix: str = "",
-# ) -> list[FileObject]:
-    
-#     files_path = Path(base_dir.joinpath(prefix))
-#     versions: list[FileObject] = []
-    
-#     for f in list_project_files(files_path):
-#         if strip_prefix:
-#             start_idx = len(str(base_dir.joinpath(strip_prefix)))
-#             name = str(f)[start_idx:]
-#         else:
-#             name = str(f.relative_to(base_dir))
-        
-#         latest_id = int(get_latest_version(f).name.split("_")[0])
+def upload_fileobj(file: IO, key: str):
+    """Upload a file with the specified key to the projects directory."""
 
-#         for file_version in get_all_versions(f):
-
-#             version_id = int(file_version.name.split("_")[0])
-#             stats = os.stat(file_version)
-#             with open(file_version, "r") as opened_file:
-#                 md5 = get_md5sum(opened_file)
-
-#             versions.append(
-#                 FileObject(
-#                     name = name,
-#                     version_id = version_id,
-#                     absolute_path = file_version,
-#                     key = str(f.relative_to(base_dir)),
-#                     last_modified = datetime.fromtimestamp(stats.st_mtime),
-#                     is_latest = version_id == latest_id,
-#                     size = stats.st_size,
-#                     md5sum = md5
-#                 )
-#             )
-    
-#     versions.sort(key = lambda v: (v.key, v.last_modified))
-#     return versions
-
-
-# def list_files_with_versions(
-#     base_dir: PurePath,
-#     prefix: str,
-#     strip_prefix: str = "",
-# ) -> Generator[FileObjectWithVersions, None, None]:
-#     """Yields an object with all it's versions
-#     Yields:
-#         Generator[S3ObjectWithVersions]: the object with its versions
-#     """
-
-#     last_key: str | None = None
-#     versions: list[FileObject] = []
-#     latest: FileObject | None = None
-
-#     for version in list_versions(base_dir, prefix, strip_prefix):
-#         if last_key != version.key:
-#             if last_key:
-#                 assert latest
-#                 yield FileObjectWithVersions(latest, versions)
-            
-#             latest = None
-#             versions = []
-#             last_key = version.key
-
-#         versions.append(version)
-
-#         if version.is_latest:
-#                 latest = version
-    
-#     if last_key:
-#         assert latest
-#         yield FileObjectWithVersions(latest, versions)
-
-
-def upload_fileobj(
-    file,
-    key: str
-):
-
-    path = get_projects_dir().joinpath(key +".d")
-    os.makedirs(path, exist_ok=True)
+    dir_path = get_projects_dir().joinpath(key +".d")
+    os.makedirs(dir_path, exist_ok=True)
 
     count: int
-    count_list = get_all_versions(path)
+    count_list = get_all_versions(dir_path)
     if not count_list or len(count_list) == 0:
         count = 1
     else:
-        count = int(get_latest_version(path).name.split("_")[0]) + 1
+        count = int(_get_version_id(get_latest_version(dir_path))) + 1
     
+    file_path = str(count) + "_" + PurePath(key).parts[-1]
+    final_path = dir_path.joinpath(file_path)
 
-    middle_path = str(count) + "_" + PurePath(key).parts[-1]
-
-    final_path = path.joinpath(middle_path)
-
-    f = open(final_path, "wb")
-    f.write(file.read())
-    f.close()
+    with open(final_path, "wb") as f:
+        f.write(file.read())
 
 
 def delete_objects(key: str):
