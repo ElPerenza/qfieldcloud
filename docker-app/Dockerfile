@@ -58,6 +58,10 @@ RUN if [ "$DEBUG_BUILD" = "1" ]; then pip3 install debugpy; fi
 # add app group
 RUN addgroup --system app && adduser --system app --ingroup app
 
+# Local project storage directory
+RUN mkdir ./projectfiles
+RUN chown -R app:app ./projectfiles
+
 # create the appropriate directories
 RUN mkdir staticfiles
 RUN mkdir mediafiles
