@@ -7,13 +7,13 @@ from enum import Enum
 from pathlib import PurePath
 from typing import IO
 
+import qfieldcloud.core.models
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.http import FileResponse, HttpRequest
 from django.http.response import HttpResponse, HttpResponseBase
 from qfieldcloud.core import utils_local
-from qfieldcloud.core.models import Project, User
 from qfieldcloud.core.utils2.audit import LogEntry, audit
 
 logger = logging.getLogger(__name__)
@@ -75,7 +75,7 @@ def delete_version_permanently(version_obj: utils_local.FileObject):
 
 
 def get_attachment_dir_prefix(
-    project: Project, filename: str
+    project: qfieldcloud.core.models.Project, filename: str
 ) -> str:  # noqa: F821
     """Returns the attachment dir where the file belongs to or empty string if it does not.
 
@@ -112,7 +112,7 @@ def file_response(
 
         with open(file_path, "rb") as return_file:
             file_data = return_file.read()
-        # Lets NGINX handle the redirect to the storage and streaming the file contents back to the client
+        # Let's NGINX handle the redirect to the storage and streaming the file contents back to the client
         response = HttpResponse(file_data)
         response['Content-Type'] = 'application/octet-stream'
         if as_attachment:
@@ -149,7 +149,7 @@ class ImageMimeTypes(str, Enum):
 
 
 def upload_user_avatar(
-    user: User, file: IO, mimetype: ImageMimeTypes
+    user: qfieldcloud.core.models.User, file: IO, mimetype: ImageMimeTypes
 ) -> str:  # noqa: F821
     """Uploads a picture as a user avatar.
 
@@ -168,7 +168,7 @@ def upload_user_avatar(
     return key
 
 
-def delete_user_avatar(user: User) -> None:  # noqa: F821
+def delete_user_avatar(user: qfieldcloud.core.models.User) -> None:  # noqa: F821
     """Deletes the user's avatar file.
 
     NOTE this function does NOT modify the `UserAccount.avatar_uri` field
@@ -190,7 +190,7 @@ def delete_user_avatar(user: User) -> None:  # noqa: F821
 
 
 def upload_project_thumbail(
-    project: Project,
+    project: qfieldcloud.core.models.Project,
     file: IO,
     mimetype: str,
     filename: str,  # noqa: F821
@@ -225,7 +225,7 @@ def upload_project_thumbail(
 
 
 def delete_project_thumbnail(
-    project: Project,
+    project: qfieldcloud.core.models.Project,
 ) -> None:  # noqa: F821
     """Delete a picture as a project thumbnail.
 
@@ -249,7 +249,7 @@ def delete_project_thumbnail(
 
 
 def purge_old_file_versions(
-    project: Project,
+    project: qfieldcloud.core.models.Project,
 ) -> None:  # noqa: F821
     """
     Deletes old versions of all files in the given project. Will keep __3__
@@ -304,7 +304,7 @@ def upload_file(file: IO, key: str):
 
 
 def upload_project_file(
-    project: Project, file: IO, filename: str  # noqa: F821
+    project: qfieldcloud.core.models.Project, file: IO, filename: str  # noqa: F821
 ) -> str:
     key = f"{project.id}/files/{filename}"
     
@@ -326,7 +326,7 @@ def delete_all_project_files_permanently(project_id: str) -> None:
     _delete_by_prefix_permanently(prefix)
 
 
-def delete_project_file_permanently(project: Project, filename: str):  # noqa: F821
+def delete_project_file_permanently(project: qfieldcloud.core.models.Project, filename: str):  # noqa: F821
     logger.info(f"Requested delete (permanent) of project file {filename=}")
 
     file = utils_local.get_project_file_with_versions(str(project.id), filename)
@@ -364,7 +364,7 @@ def delete_project_file_permanently(project: Project, filename: str):  # noqa: F
 
 
 def delete_project_file_version_permanently(
-    project: Project,  # noqa: F821
+    project: qfieldcloud.core.models.Project,  # noqa: F821
     filename: str,
     version_id: str,
     include_older: bool = False,
@@ -473,8 +473,8 @@ def delete_stored_package(project_id: str, package_id: str) -> None:
 
 
 def get_project_file_storage_in_bytes(project_id: str) -> int:
-    """Calculates the project files storage in bytes, including their versions.
-
+    """
+    Calculates the project files storage in bytes, including their versions.
     WARNING This function can be quite slow on projects with thousands of files.
     """
     return utils_local.get_projects_dir().joinpath(project_id).stat().st_size
