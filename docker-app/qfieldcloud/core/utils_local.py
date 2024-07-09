@@ -286,5 +286,3 @@ def delete_objects(key: str):
             shutil.rmtree(path)
         else:
             os.remove(path)
-
-
