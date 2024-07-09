@@ -71,8 +71,6 @@ def delete_version_permanently(version_obj: utils_local.FileObject):
     logging.info(
         f'File object version deletion (permanent) with "{version_obj.absolute_path=}"'
     )
-    print("**********DELETE VERISON PERMANENTLY*********")
-    print(version_obj.absolute_path)
     version_obj.absolute_path.unlink(True)
 
 
@@ -328,9 +326,7 @@ def delete_all_project_files_permanently(project_id: str) -> None:
     _delete_by_prefix_permanently(prefix)
 
 
-def delete_project_file_permanently(
-    project: Project, filename: str
-):  # noqa: F821
+def delete_project_file_permanently(project: Project, filename: str):  # noqa: F821
     logger.info(f"Requested delete (permanent) of project file {filename=}")
 
     file = utils_local.get_project_file_with_versions(str(project.id), filename)
@@ -343,15 +339,6 @@ def delete_project_file_permanently(
     if not re.match(r"^[\w]{8}(-[\w]{4}){3}-[\w]{12}/.+$", file.latest.key):
         raise RuntimeError(f"Suspicious file deletion {file.latest.key=}")
 
-    # NOTE the file operations depend on HTTP calls to the S3 storage and they might fail,
-    # we need to choose source of truth between DB and S3.
-    # For now the source of truth is what is on the S3 storage,
-    # because we do most of our file operations directly by calling the S3 API.
-    # 1. S3 storage modification. If it fails, it will cancel the transaction
-    # and do not update anything in the database.
-    # We assume S3 storage is transactional, while it might not be true.
-    # 2. DB modification. If it fails, the states betewen DB and S3 mismatch,
-    # but can be easyly synced from the S3 to DB with a manual script.
     with transaction.atomic():
         _delete_by_key_permanently(file.latest.key)
 
@@ -394,7 +381,6 @@ def delete_project_file_version_permanently(
         int: the number of versions deleted
     """
     file = utils_local.get_project_file_with_versions(str(project.id), filename)
-
     if not file:
         raise Exception(
             f"No file with such name in the given project found {filename=} {version_id=}"
@@ -463,7 +449,7 @@ def get_stored_package_ids(project_id: str) -> set[str]:
     root_path = utils_local.get_projects_dir().joinpath(prefix)
     package_ids = set()
 
-    for file in utils_local.list_files(root_path, ""):
+    for file in utils_local.list_files(utils_local.get_projects_dir(), prefix):
         file_path = PurePath(file.key)
         parts = file_path.relative_to(root_path).parts
         package_ids.add(parts[0])
