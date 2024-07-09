@@ -5,10 +5,9 @@ import django.db.utils
 from django.utils import timezone
 from django_currentuser.middleware import _set_current_user
 from qfieldcloud.authentication.models import AuthToken
-from qfieldcloud.core import utils
 from qfieldcloud.core.models import Person, Project
 from qfieldcloud.core.tests.utils import get_random_file, setup_subscription_plans
-from qfieldcloud.core.utils import list_versions
+from qfieldcloud.core.utils_local import upload_fileobj, get_project_file_with_versions
 from qfieldcloud.core.utils2.storage import (
     delete_project_file_permanently,
     delete_project_file_version_permanently,
@@ -593,9 +592,9 @@ class QfcTestCase(APITransactionTestCase):
         )
 
         p1 = Project.objects.create(name="p1", owner=self.u1)
-        storage_path = f"projects/{p1.id}/files/test.data"
-        bucket = utils.get_s3_bucket()
-        bucket.upload_fileobj(get_random_file(mb=0.3), storage_path)
+        filename = "test.data"
+        storage_path = f"{p1.id}/files/{filename}"
+        upload_fileobj(get_random_file(mb=0.3), storage_path)
         p1.save(recompute_storage=True)
 
         self.assertStorage(
@@ -612,7 +611,7 @@ class QfcTestCase(APITransactionTestCase):
             storage_free_mb=0.7,
         )
 
-        bucket.upload_fileobj(get_random_file(mb=0.1), storage_path)
+        upload_fileobj(get_random_file(mb=0.1), storage_path)
         p1.save(recompute_storage=True)
 
         self.assertStorage(
@@ -628,9 +627,9 @@ class QfcTestCase(APITransactionTestCase):
             storage_used_mb=0.4,
             storage_free_mb=0.6,
         )
-
-        version = list(list_versions(bucket, storage_path))[0]
-        delete_project_file_version_permanently(p1, "test.data", version.id)
+        
+        version = get_project_file_with_versions(str(p1.id), filename).versions[0] # type: ignore
+        delete_project_file_version_permanently(p1, "test.data", version.version_id)
         p1.save(recompute_storage=True)
 
         self.assertStorage(

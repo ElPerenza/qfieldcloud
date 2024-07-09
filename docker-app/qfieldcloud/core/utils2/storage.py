@@ -366,7 +366,7 @@ def delete_project_file_permanently(project: qfieldcloud.core.models.Project, fi
 def delete_project_file_version_permanently(
     project: qfieldcloud.core.models.Project,  # noqa: F821
     filename: str,
-    version_id: str,
+    version_id: int,
     include_older: bool = False,
 ) -> list[utils_local.FileObject]:
     """Deletes a specific version of given file.

@@ -3,7 +3,7 @@ import io
 from django.core.management import call_command
 from django.test import TestCase
 from qfieldcloud.core.models import Person, Project
-from qfieldcloud.core.utils import get_project_files_count, get_s3_bucket
+from qfieldcloud.core.utils_local import get_project_files_count, delete_objects
 from qfieldcloud.core.utils2 import storage
 
 from .utils import set_subscription, setup_subscription_plans
@@ -17,7 +17,7 @@ class QfcTestCase(TestCase):
         set_subscription(self.u1, "default_user")
         self.projects = []
 
-        get_s3_bucket().objects.filter(Prefix="projects/").delete()
+        delete_objects("/")
 
         self.generate_projects(2)
 
