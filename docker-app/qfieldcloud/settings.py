@@ -242,18 +242,10 @@ STATICFILES_DIRS = [
 ]
 STATICFILES_STORAGE = "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"
 
-
 MEDIA_URL = "/mediafiles/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "mediafiles")
 
-# S3 Storage
-STORAGE_ACCESS_KEY_ID = os.environ.get("STORAGE_ACCESS_KEY_ID")
-STORAGE_SECRET_ACCESS_KEY = os.environ.get("STORAGE_SECRET_ACCESS_KEY")
-STORAGE_BUCKET_NAME = os.environ.get("STORAGE_BUCKET_NAME")
-STORAGE_REGION_NAME = os.environ.get("STORAGE_REGION_NAME")
-STORAGE_ENDPOINT_URL = os.environ.get("STORAGE_ENDPOINT_URL")
-
-# Local
+# Local project storage
 PROJECTFILES_URL = "/projectfiles/"
 PROJECTFILES_ROOT = os.path.join(BASE_DIR, "projectfiles")
 
