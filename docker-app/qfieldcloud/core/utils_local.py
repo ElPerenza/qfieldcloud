@@ -109,7 +109,8 @@ def get_all_versions(file_dir: Path) -> list[Path]:
 
 def get_latest_version(file_dir: Path) -> Path: 
     """Get the latest version of a file given its directory."""
-    return get_all_versions(file_dir)[-1]
+    versions = get_all_versions(file_dir)
+    return versions[-1] if versions else None # type: ignore
 
 
 def get_project_files(project_id: str, path: str = "") -> list[FileObject]:
@@ -208,6 +209,8 @@ def list_files(
             name = key
 
         latest_version = get_latest_version(f)
+        if not latest_version:
+            continue
         files.append(_create_file_object(latest_version, name, key, True))
 
     files.sort(key = lambda f: f.name)
