@@ -194,10 +194,10 @@ class DownloadPushDeleteFileView(views.APIView):
         if "version" in self.request.query_params:
             version = self.request.query_params["version"]
         else:
-            path = utils_local.get_projects_dir().joinpath(projectid, "files", filename + ".d")
+            path = utils_local.get_projects_dir().joinpath(str(projectid), "files", filename + ".d")
             version = str(utils_local._get_version_id(utils_local.get_latest_version(path)))
-
-        key = utils.safe_join(f"{projectid}/files/", filename + ".d", version + "_" + filename)
+                                                                                                    
+        key = utils.safe_join(f"{str(projectid)}/files/", filename + ".d", version + "_" + filename)
         return utils2.storage.file_response(
             request,
             key,
