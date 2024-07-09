@@ -7,15 +7,13 @@ from enum import Enum
 from pathlib import PurePath
 from typing import IO
 
-import qfieldcloud.core.models
-import qfieldcloud.core.utils
-import qfieldcloud.core.utils_local
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.http import FileResponse, HttpRequest
 from django.http.response import HttpResponse, HttpResponseBase
-from mypy_boto3_s3.type_defs import ObjectIdentifierTypeDef
+from qfieldcloud.core import utils_local
+from qfieldcloud.core.models import Project, User
 from qfieldcloud.core.utils2.audit import LogEntry, audit
 
 logger = logging.getLogger(__name__)
@@ -28,8 +26,6 @@ def _delete_by_prefix_permanently(prefix: str):
 
     Similar concept to delete a directory.
     Do not use when deleting objects with precise key, as it will delete all objects that start with the same name.
-    Deleting with this method will permanently delete objects and all their versions and the deletion is impossible to recover.
-    In other words, it is a hard delete. Read more here: https://docs.aws.amazon.com/AmazonS3/latest/userguide/DeletingObjectVersions.html
 
     Args:
         prefix (str): Object's prefix to search and delete. Check the given prefix if it matches the expected format before using this function!
@@ -37,43 +33,15 @@ def _delete_by_prefix_permanently(prefix: str):
     Raises:
         RuntimeError: When the given prefix is not a string, empty string or leading slash. Check is very basic, do a throrogh checks before calling!
     """
-    logging.info(f"S3 object deletion (permanent) with {prefix=}")
+    logging.info(f"Object deletion (permanent) with {prefix=}")
 
     # Illegal prefix is either empty string ("") or slash ("/"), it will delete random 1000 object versions.
     if not isinstance(prefix, str) or prefix == "" or prefix == "/":
-        raise RuntimeError(f"Attempt to delete S3 object with illegal {prefix=}")
+        raise RuntimeError(f"Attempt to delete object with illegal {prefix=}")
 
-    path = PurePath(prefix)
-    object_to_remove = qfieldcloud.core.utils_local.list_files(path, "")
-    for obj in object_to_remove:
-        qfieldcloud.core.utils_local.delete_objects(obj.key)
-    return True
-
-
-def _delete_by_key_versioned(key: str):
-    """
-    Delete an object with a given key.
-
-    Deleting with this method will leave a deleted version and the deletion is not permanent.
-    In other words, it is a soft delete.
-
-    Args:
-        key (str): Object's key to search and delete. Check the given key if it matches the expected format before using this function!
-
-    Raises:
-        RuntimeError: When the given key is not a string, empty string or leading slash. Check is very basic, do a throrogh checks before calling!
-    """
-    logging.info(f"Delete (versioned) S3 object with {key=}")
-
-    # prevent disastrous results when prefix is either empty string ("") or slash ("/").
-    if not isinstance(key, str) or key == "" or key == "/":
-        raise RuntimeError(
-            f"Attempt to delete (versioned) S3 object with illegal {key=}"
-        )
-
-    return qfieldcloud.core.utils_local.delete_objects(
-        key,
-    )
+    objects_to_remove = utils_local.list_files(utils_local.get_projects_dir(), prefix)
+    for obj in objects_to_remove:
+        utils_local.delete_objects(str(obj.absolute_path))
 
 
 def _delete_by_key_permanently(key: str):
@@ -89,43 +57,27 @@ def _delete_by_key_permanently(key: str):
     Raises:
         RuntimeError: When the given key is not a string, empty string or leading slash. Check is very basic, do a throrogh checks before calling!
     """
-    logging.info(f"Delete (permanently) S3 object with {key=}")
+    logging.info(f"Delete (permanently) object with {key=}")
 
     # prevent disastrous results when prefix is either empty string ("") or slash ("/").
     if not isinstance(key, str) or key == "" or key == "/":
         raise RuntimeError(
             f"Attempt to delete (permanently) object with illegal {key=}"
         )
-    filename = key.split("/")[-1]
-    path: PurePath
-    for piece in key.split("/"):
-        if not path:
-            path = PurePath(piece)
-            continue
-        if(piece != filename):
-            path.joinpath(piece)
 
-    object_to_remove = qfieldcloud.core.utils_local.list_files(path, filename)
-    if len(object_to_remove) == 0:
-        logging.warning(
-            f"Attempt to delete (permanently) objects did not match any existing objects for {key=}",
-        )
-        return None
+    utils_local.delete_objects(key)
 
-    for obj in object_to_remove:
-        qfieldcloud.core.utils_local.delete_objects(obj.key)
-    return True
-
-def delete_version_permanently(version_obj: qfieldcloud.core.utils_local.FileObject):
+def delete_version_permanently(version_obj: utils_local.FileObject):
     logging.info(
         f'File object version deletion (permanent) with "{version_obj.absolute_path=}"'
     )
-
+    print("**********DELETE VERISON PERMANENTLY*********")
+    print(version_obj.absolute_path)
     version_obj.absolute_path.unlink(True)
 
 
 def get_attachment_dir_prefix(
-    project: qfieldcloud.core.models.Project, filename: str
+    project: Project, filename: str
 ) -> str:  # noqa: F821
     """Returns the attachment dir where the file belongs to or empty string if it does not.
 
@@ -150,41 +102,34 @@ def file_response(
     version: str | None = None,
     as_attachment: bool = False,
 ) -> HttpResponseBase:
-    url = ""
+    
     filename = PurePath(key).name
-    extra_params = {}
-
-    if version is not None:
-        extra_params["VersionId"] = version
+    file_path = utils_local.get_projects_dir().joinpath(key)
 
     # check if we are in NGINX proxy
     http_host = request.META.get("HTTP_HOST", "")
     https_port = http_host.split(":")[-1] if ":" in http_host else "443"
 
     if https_port == settings.WEB_HTTPS_PORT and not settings.IN_TEST_SUITE:
+
+        with open(file_path, "rb") as return_file:
+            file_data = return_file.read()
+        # Lets NGINX handle the redirect to the storage and streaming the file contents back to the client
+        response = HttpResponse(file_data)
+        response['Content-Type'] = 'application/octet-stream'
         if as_attachment:
-            extra_params["ResponseContentType"] = "application/force-download"
-            extra_params[
-                "ResponseContentDisposition"
-            ] = f'attachment;filename="{filename}"'
-
-        return_file = open(qfieldcloud.core.utils_local.get_projects_dir().joinpath(key), "rb")
-        file_data = return_file.read()
-        # Let's NGINX handle the redirect to the storage and streaming the file contents back to the client
-
-        response = HttpResponse(file_data, content_type='application/octet-stream')
-        response['Content-Disposition'] = 'attachment; filename='+filename
-
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
+    
     elif settings.DEBUG or settings.IN_TEST_SUITE:
-        return_file = open(qfieldcloud.core.utils_local.get_projects_dir().joinpath(key), "rb")
 
-
+        with open(file_path, "rb") as return_file:
+            file_data = return_file.read()
         return FileResponse(
-            return_file,
+            file_data,
             as_attachment=as_attachment,
             filename=filename,
-            content_type="text/html",
+            content_type="application/octet-stream",
         )
 
     raise Exception(
@@ -206,7 +151,7 @@ class ImageMimeTypes(str, Enum):
 
 
 def upload_user_avatar(
-    user: qfieldcloud.core.models.User, file: IO, mimetype: ImageMimeTypes
+    user: User, file: IO, mimetype: ImageMimeTypes
 ) -> str:  # noqa: F821
     """Uploads a picture as a user avatar.
 
@@ -221,14 +166,11 @@ def upload_user_avatar(
         str: URI to the avatar
     """
     key = f"users/{user.username}/avatar.{mimetype.name}"
-    qfieldcloud.core.utils_local.upload_fileobj(
-        file,
-        key,
-    )
+    utils_local.upload_fileobj(file, key)
     return key
 
 
-def delete_user_avatar(user: qfieldcloud.core.models.User) -> None:  # noqa: F821
+def delete_user_avatar(user: User) -> None:  # noqa: F821
     """Deletes the user's avatar file.
 
     NOTE this function does NOT modify the `UserAccount.avatar_uri` field
@@ -250,7 +192,7 @@ def delete_user_avatar(user: qfieldcloud.core.models.User) -> None:  # noqa: F82
 
 
 def upload_project_thumbail(
-    project: qfieldcloud.core.models.Project,
+    project: Project,
     file: IO,
     mimetype: str,
     filename: str,  # noqa: F821
@@ -280,15 +222,12 @@ def upload_project_thumbail(
         raise Exception(f"Unknown mimetype: {mimetype}")
 
     key = f"{project.id}/meta/{filename}.{extension}"
-    qfieldcloud.core.utils_local.upload_fileobj(
-        file,
-        key,
-    )
+    utils_local.upload_fileobj(file, key)
     return key
 
 
 def delete_project_thumbnail(
-    project: qfieldcloud.core.models.Project,
+    project: Project,
 ) -> None:  # noqa: F821
     """Delete a picture as a project thumbnail.
 
@@ -302,8 +241,8 @@ def delete_project_thumbnail(
         return
 
     if not key or not re.match(
-        # e.g. "projects/9bf34e75-0a5d-47c3-a2f0-ebb7126eeccc/meta/thumbnail.png"
-        r"^projects/[\w]{8}(-[\w]{4}){3}-[\w]{12}/meta/thumbnail\.(png|jpg|svg)$",
+        # e.g. "9bf34e75-0a5d-47c3-a2f0-ebb7126eeccc/meta/thumbnail.png"
+        r"^[\w]{8}(-[\w]{4}){3}-[\w]{12}/meta/thumbnail\.(png|jpg|svg)$",
         key,
     ):
         raise RuntimeError(f"Suspicious deletion of project thumbnail image {key=}")
@@ -312,7 +251,7 @@ def delete_project_thumbnail(
 
 
 def purge_old_file_versions(
-    project: qfieldcloud.core.models.Project,
+    project: Project,
 ) -> None:  # noqa: F821
     """
     Deletes old versions of all files in the given project. Will keep __3__
@@ -325,7 +264,7 @@ def purge_old_file_versions(
     logger.info(f"Cleaning up old files for {project} to {keep_count} versions")
 
     # Process file by file
-    for file in qfieldcloud.core.utils_local.get_project_files_with_versions(project.pk):
+    for file in utils_local.get_project_files_with_versions(project.pk):
         # Skip the newest N
         old_versions_to_purge = sorted(
             file.versions, key=lambda v: v.last_modified, reverse=True
@@ -345,10 +284,10 @@ def purge_old_file_versions(
                 raise Exception("Trying to delete latest version")
 
             if not old_version.key or not re.match(
-                r"^projects/[\w]{8}(-[\w]{4}){3}-[\w]{12}/.+$", old_version.key
+                r"^[\w]{8}(-[\w]{4}){3}-[\w]{12}\/.+$", old_version.key
             ):
                 raise RuntimeError(
-                    f"Suspicious S3 file version deletion {old_version.key=} {old_version.version_id=}"
+                    f"Suspicious file version deletion {old_version.key=} {old_version.version_id=}"
                 )
             # TODO: any way to batch those ? will probaby get slow on production
             delete_version_permanently(old_version)
@@ -359,7 +298,7 @@ def purge_old_file_versions(
 
 
 def upload_file(file: IO, key: str):
-    qfieldcloud.core.utils_local.upload_fileobj(
+    utils_local.upload_fileobj(
         file,
         key,
     )
@@ -367,11 +306,11 @@ def upload_file(file: IO, key: str):
 
 
 def upload_project_file(
-    project: qfieldcloud.core.models.Project, file: IO, filename: str  # noqa: F821
+    project: Project, file: IO, filename: str  # noqa: F821
 ) -> str:
     key = f"{project.id}/files/{filename}"
     
-    qfieldcloud.core.utils_local.upload_fileobj(
+    utils_local.upload_fileobj(
         file,
         key,
     )
@@ -381,28 +320,28 @@ def upload_project_file(
 def delete_all_project_files_permanently(project_id: str) -> None:
     prefix = f"{project_id}/"
 
-    if not re.match(r"^projects/[\w]{8}(-[\w]{4}){3}-[\w]{12}/$", prefix):
+    if not re.match(r"^[\w]{8}(-[\w]{4}){3}-[\w]{12}/$", prefix):
         raise RuntimeError(
-            f"Suspicious S3 deletion of all project files with {prefix=}"
+            f"Suspicious deletion of all project files with {prefix=}"
         )
 
     _delete_by_prefix_permanently(prefix)
 
 
 def delete_project_file_permanently(
-    project: qfieldcloud.core.models.Project, filename: str
+    project: Project, filename: str
 ):  # noqa: F821
     logger.info(f"Requested delete (permanent) of project file {filename=}")
 
-    file = qfieldcloud.core.utils_local.get_project_file_with_versions(str(project.id), filename)
+    file = utils_local.get_project_file_with_versions(str(project.id), filename)
 
     if not file:
         raise Exception(
             f"No file with such name in the given project found {filename=}"
         )
 
-    if not re.match(r"^projects/[\w]{8}(-[\w]{4}){3}-[\w]{12}/.+$", file.latest.key):
-        raise RuntimeError(f"Suspicious S3 file deletion {file.latest.key=}")
+    if not re.match(r"^[\w]{8}(-[\w]{4}){3}-[\w]{12}/.+$", file.latest.key):
+        raise RuntimeError(f"Suspicious file deletion {file.latest.key=}")
 
     # NOTE the file operations depend on HTTP calls to the S3 storage and they might fail,
     # we need to choose source of truth between DB and S3.
@@ -418,7 +357,7 @@ def delete_project_file_permanently(
 
         update_fields = ["file_storage_bytes"]
 
-        if qfieldcloud.core.utils_local.is_qgis_project_file(filename):
+        if utils_local.is_qgis_project_file(filename):
             update_fields.append("project_filename")
             project.project_filename = None
 
@@ -433,16 +372,16 @@ def delete_project_file_permanently(
         audit(
             project,
             LogEntry.Action.DELETE,
-            changes={f"{filename} ALL": [file.latest.e_tag, None]},
+            changes={f"{filename} ALL": [f'"{file.latest.md5sum}"', None]},
         )
 
 
 def delete_project_file_version_permanently(
-    project: qfieldcloud.core.models.Project,  # noqa: F821
+    project: Project,  # noqa: F821
     filename: str,
     version_id: str,
     include_older: bool = False,
-) -> list[qfieldcloud.core.utils_local.FileObject]:
+) -> list[utils_local.FileObject]:
     """Deletes a specific version of given file.
 
     Args:
@@ -454,7 +393,7 @@ def delete_project_file_version_permanently(
     Returns:
         int: the number of versions deleted
     """
-    file = qfieldcloud.core.utils_local.get_project_file_with_versions(str(project.id), filename)
+    file = utils_local.get_project_file_with_versions(str(project.id), filename)
 
     if not file:
         raise Exception(
@@ -470,7 +409,7 @@ def delete_project_file_version_permanently(
             )
 
     versions_latest_first = list(reversed(file.versions))
-    versions_to_delete: list[qfieldcloud.core.utils_local.FileObject] = []
+    versions_to_delete: list[utils_local.FileObject] = []
 
     for file_version in versions_latest_first:
         if file_version.version_id == version_id:
@@ -495,13 +434,13 @@ def delete_project_file_version_permanently(
         for file_version in versions_to_delete:
             if (
                 not re.match(
-                    r"^projects/[\w]{8}(-[\w]{4}){3}-[\w]{12}/.+$",
+                    r"^[\w]{8}(-[\w]{4}){3}-[\w]{12}/.+$",
                     file_version.key,
                 )
                 or not file_version.version_id
             ):
                 raise RuntimeError(
-                    f"Suspicious S3 file version deletion {filename=} {version_id=} {include_older=}"
+                    f"Suspicious file version deletion {filename=} {version_id=} {include_older=}"
                 )
 
             audit_suffix = file_version.display
@@ -509,7 +448,7 @@ def delete_project_file_version_permanently(
             audit(
                 project,
                 LogEntry.Action.DELETE,
-                changes={f"{filename} {audit_suffix}": [file_version, None]},
+                changes={f"{filename} {audit_suffix}": [f'"{file_version.md5sum}"', None]},
             )
 
             delete_version_permanently(file_version)
@@ -521,10 +460,10 @@ def delete_project_file_version_permanently(
 
 def get_stored_package_ids(project_id: str) -> set[str]:
     prefix = f"{project_id}/packages/"
-    root_path = PurePath(prefix)
+    root_path = utils_local.get_projects_dir().joinpath(prefix)
     package_ids = set()
 
-    for file in qfieldcloud.core.utils_local.list_files(root_path, ""):
+    for file in utils_local.list_files(root_path, ""):
         file_path = PurePath(file.key)
         parts = file_path.relative_to(root_path).parts
         package_ids.add(parts[0])
@@ -537,7 +476,7 @@ def delete_stored_package(project_id: str, package_id: str) -> None:
 
     if not re.match(
         # e.g. "projects/878039c4-b945-4356-a44e-a908fd3f2263/packages/633cd4f7-db14-4e6e-9b2b-c0ce98f9d338/"
-        r"^projects/[\w]{8}(-[\w]{4}){3}-[\w]{12}/packages/[\w]{8}(-[\w]{4}){3}-[\w]{12}/$",
+        r"^[\w]{8}(-[\w]{4}){3}-[\w]{12}/packages/[\w]{8}(-[\w]{4}){3}-[\w]{12}/$",
         prefix,
     ):
         raise RuntimeError(
@@ -552,4 +491,4 @@ def get_project_file_storage_in_bytes(project_id: str) -> int:
 
     WARNING This function can be quite slow on projects with thousands of files.
     """
-    return qfieldcloud.core.utils_local.get_projects_dir().joinpath(project_id).stat().st_size
+    return utils_local.get_projects_dir().joinpath(project_id).stat().st_size
