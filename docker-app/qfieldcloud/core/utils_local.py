@@ -222,6 +222,7 @@ def list_files_with_versions(
     prefix: str,
     strip_prefix: str = "",
 ) -> list[FileObjectWithVersions]:
+    """List a directory's project filesc and all of their versions under prefix."""
     
     files_with_versions: list[FileObjectWithVersions] = []
 
@@ -281,11 +282,13 @@ def upload_fileobj(file: IO, key: str):
 
 
 def delete_objects(key: str):
+    """"Delete a file/directory with the specified key from the projects directory."""
 
     path = get_projects_dir().joinpath(key)
+    if not path.exists():
+        return
 
-    if os.path.exists(path):
-        if os.path.isdir(path):
-            shutil.rmtree(path)
-        else:
-            os.remove(path)
+    if path.is_dir():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
