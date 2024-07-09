@@ -1,5 +1,6 @@
 import logging
 import os
+import shutil
 from datetime import datetime
 from pathlib import Path, PurePath
 from typing import IO, NamedTuple
@@ -277,7 +278,13 @@ def upload_fileobj(file: IO, key: str):
 
 
 def delete_objects(key: str):
-    if os.path.exists(key):
-        os.remove(key)
+
+    path = get_projects_dir().joinpath(key)
+
+    if os.path.exists(path):
+        if os.path.isdir(path):
+            shutil.rmtree(path)
+        else:
+            os.remove(path)
 
 
