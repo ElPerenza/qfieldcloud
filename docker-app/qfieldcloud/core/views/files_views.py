@@ -70,18 +70,14 @@ class ListFilesView(views.APIView):
             project = Project.objects.get(id=projectid)
         except ObjectDoesNotExist:
             raise NotFound(detail=projectid)
-
         
-        prefix = f"{projectid}/files/"
-
         files = {}
-        for version in utils_local.list_files(PurePath(prefix), ""):
+        for version in utils_local.list_files(utils_local.get_projects_dir(), f"{projectid}/files/"):
             # Created the dict entry if doesn't exist
             if version.key not in files:
                 files[version.key] = {"versions": []}
 
-            path = PurePath(version.key)
-            filename = str(path.relative_to(*path.parts[:3]))
+            filename = PurePath(version.name).name.strip(".d")
             last_modified = version.last_modified.strftime("%d.%m.%Y %H:%M:%S %Z")
             # NOTE ETag is a MD5. But for the multipart uploaded files, the MD5 is computed from the concatenation of the MD5s of each uploaded part.
             # TODO make sure when file metadata is in the DB (QF-2760), this is a real md5sum of the current file.
@@ -93,9 +89,9 @@ class ListFilesView(views.APIView):
                 "version_id": version.version_id,
                 "last_modified": last_modified,
                 "is_latest": version.is_latest,
-                "display": "TODO: S3ObjectVersion(version.key, version).display",
+                "display": version.display,
             }
-
+            
             # NOTE Some clients (e.g. QFieldSync) are still requiring the `sha256` key to check whether the files needs to be reuploaded.
             # Since we do not have control on these old client versions, we need to keep the API backward compatible for some time and assume `skip_metadata=0` by default.
             skip_metadata_param = request.GET.get("skip_metadata", "0")
@@ -104,8 +100,9 @@ class ListFilesView(views.APIView):
             else:
                 skip_metadata = bool(skip_metadata_param)
 
-            if not skip_metadata:
-                sha256sum = utils._get_sha256_file(open(utils_local.get_projects_dir().joinpath(version.key), "rb"))
+            with open(version.absolute_path, "rb") as f:
+                if not skip_metadata:
+                    sha256sum = utils.get_sha256(f)
 
             if version.is_latest:
                 #get_attachment_dir_prefix complete dir path to file
@@ -193,11 +190,14 @@ class DownloadPushDeleteFileView(views.APIView):
     def get(self, request, projectid, filename):
         Project.objects.get(id=projectid)
 
-        version = None
+        version: str
         if "version" in self.request.query_params:
             version = self.request.query_params["version"]
+        else:
+            path = utils_local.get_projects_dir().joinpath(projectid, "files", filename + ".d")
+            version = str(utils_local._get_version_id(utils_local.get_latest_version(path)))
 
-        key = utils.safe_join(f"{projectid}/files/", filename)
+        key = utils.safe_join(f"{projectid}/files/", filename + ".d", version + "_" + filename)
         return utils2.storage.file_response(
             request,
             key,
@@ -278,10 +278,6 @@ class DownloadPushDeleteFileView(views.APIView):
         utils_local.upload_fileobj(request_file, key)
 
         new_object = get_project_file_with_versions(str(project.id), filename)
-
-        print(new_object)
-        print(project.id)
-        print(filename)
         assert new_object
 
         with transaction.atomic():

@@ -115,12 +115,13 @@ class ListFilesView(views.APIView):
         export_prefix = f"{projectid}/packages/{package_job.id}/"
 
         files = []
-        for obj in utils_local.list_files(PurePath(export_prefix), ""):
+        for obj in utils_local.list_files(utils_local.get_projects_dir(), export_prefix):
             path = PurePath(obj.key)
 
             # We cannot be sure of the metadata's first letter case
             # https://github.com/boto/boto3/issues/1709
-            sha256sum = utils._get_sha256_file(open(utils_local.get_projects_dir().joinpath(export_prefix), "rb"))
+            with open(obj.absolute_path, "rb") as f:
+                sha256sum = utils.get_sha256(f)
 
             files.append(
                 {
