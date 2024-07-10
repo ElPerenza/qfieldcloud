@@ -18,9 +18,6 @@ RUN apt update && apt install -y libpq-dev python3-dev gcc
 COPY ./requirements.txt .
 RUN pip3 install -r requirements.txt
 
-# save 60 MB of data... Safe to delete according to botocore contributor https://github.com/boto/botocore/issues/1629#issuecomment-451309885
-RUN ls -Q /usr/local/lib/python3.10/site-packages/botocore/data | grep -xv "endpoints.json" | xargs rm -rf
-
 ##########################
 # BASE                   #
 ##########################
