@@ -5,10 +5,13 @@ from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.http import JsonResponse
 from django.shortcuts import redirect
+from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
 
 
 class ShibbolethView(APIView):
+
+    permission_classes = (AllowAny,)
 
     def get(self, request, **kwargs):
 
@@ -48,6 +51,8 @@ class ShibbolethView(APIView):
 
 class ShibbolethLogoutView(APIView):
 
+    permission_classes = (AllowAny,)
+
     @classmethod
     def write(cls, text: str):
         if text is not None:
@@ -56,6 +61,13 @@ class ShibbolethLogoutView(APIView):
                 f.write('\n')
 
     def get(self, request, **kwargs):
+        if getattr(settings, "ACCOUNT_LOGOUT_ON_GET", False):
+            response = self.post(request, **kwargs)
+        else:
+            response = self.http_method_not_allowed(request, **kwargs)
+        return self.finalize_response(request, response, **kwargs)
+    
+    def post(self, request, **kwargs):
         ShibbolethLogoutView.write('ShibbolethLogoutView::get -> redirecting logout')
         
         if hasattr(settings, 'SHIBBOLETH_COOKIES') and hasattr(settings, 'SHIBBOLETH_LOGOUTS') and len(settings.SHIBBOLETH_COOKIES) == len(settings.SHIBBOLETH_LOGOUTS):
