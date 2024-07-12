@@ -19,10 +19,5 @@ services:
     ports:
       - ${HOST_GEODB_PORT}:5432
 
-  nginx:
-    volumes:
-      - static_volume:/var/www/html/staticfiles/
-      - media_volume:/var/www/html/mediafiles/
-
 volumes:
   geodb_data:
